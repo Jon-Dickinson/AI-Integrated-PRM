@@ -59,55 +59,123 @@ interface Result {
   source: 'LLM' | 'Rules';
 }
 
-const PROMPT = `You control 4 conveyor belts (yellow, red, green, blue) that fill a container with colored blocks. You are the only controller.
-Each belt drops "blocks_per_batch" (1-4) blocks every "interval_s" (1-4) seconds. Throughput = blocks_per_batch / interval_s (min 0.25, max 4 per second).
-The container automatically removes any set of blocks matching "pattern" (e.g. yellow,yellow,red,green) about twice a second when enough of each color exist; colors outside the pattern are never removed until the pattern changes (every 20s). If capacity_pct reaches 100 the simulation fails.
-"event" says why you were called: pattern_changed, repair_started:<color>, repair_finished:<color>, ai_enabled or periodic.
-Goal: keep capacity_pct low by sending colors in proportion to the pattern and keeping non-pattern colors at minimum throughput.
-Belts with status "repair" cannot be changed. If a color the pattern needs is under repair, slow the other belts to minimum so surplus does not pile up; when it is repaired, speed them back up.
-Return ONLY JSON: {"summary": string (max 1 sentence), "actions": [up to 6 of {"belt":"yellow|red|green|blue","action":"increase_speed|decrease_speed|add_block|remove_block","reason": string (max 90 chars, plain language)}]}. increase_speed lowers interval_s by 1; add_block raises blocks_per_batch by 1.`;
+const PROMPT = `You control 4 conveyor belts (yellow, red, green, blue) that drop colored blocks into a shared container. You are the automated AI controller.
+
+CONTROLS AVAILABLE FOR EACH BELT:
+- "increase_speed": Lowers interval_s by 1s (faster belt, drops more often, min 1s).
+- "decrease_speed": Raises interval_s by 1s (slower belt, drops less often, max 4s).
+- "add_block": Increases blocks_per_batch by 1 (drops more blocks at once, max 4).
+- "remove_block": Decreases blocks_per_batch by 1 (drops fewer blocks at once, min 1).
+Throughput = blocks_per_batch / interval_s (min 0.25 blocks/sec, max 4.00 blocks/sec).
+
+SIMULATION MECHANICS:
+- The container removes blocks ONLY when a full "pattern" (e.g. [yellow, yellow, yellow, yellow] or [yellow, red, green, blue]) is matched.
+- Any color not in the target pattern remains trapped in the container, rapidly wasting capacity. If capacity reaches 100%, the simulation overflows and fails!
+
+CRITICAL CONTROLLER RULES:
+1. STRICTLY MINIMIZE UNUSED COLORS:
+   Whenever a color has 0 occurrences in the target pattern (for example, if the pattern contains 4 yellow blocks, red, green, and blue have 0 occurrences):
+   You MUST immediately throttle that color to the absolute minimum throughput (0.25 blocks/sec):
+   - Call "decrease_speed" if its interval_s < 4 (to slow the belt down to interval 4s).
+   - Call "remove_block" if its blocks_per_batch > 1 (to reduce the batch to 1 block).
+   Every extra block of an unused color hurts container capacity!
+
+2. MAXIMIZE AND MATCH NEEDED COLORS:
+   If a color appears in the pattern (e.g. 4 yellow blocks):
+   - Strongly boost that color using "increase_speed" (towards interval 1s) and "add_block" (towards 4 blocks/batch) to clear the pattern rapidly.
+   - If multiple colors are needed (e.g. 2 red, 1 green, 1 blue), balance their throughputs proportionally (2:1:1).
+
+3. HANDLE BREAKDOWNS:
+   If a needed belt is under "repair", slow down the other belts with "decrease_speed" and "remove_block" so surplus blocks do not flood the container while waiting for the repair to finish.
+
+Return ONLY JSON:
+{
+  "summary": string (1 concise sentence explaining your strategy),
+  "actions": [
+    up to 6 of {
+      "belt": "yellow" | "red" | "green" | "blue",
+      "action": "increase_speed" | "decrease_speed" | "add_block" | "remove_block",
+      "reason": string (max 85 chars, explaining why you increased or decreased speed/batch)
+    }
+  ]
+}`;
 
 function rules(s: Snapshot): Omit<Result, 'source'> {
   const need: Record<string, number> = {};
   s.pattern.forEach(c => (need[c] = (need[c] || 0) + 1));
   const blocked = s.belts.find(b => b.status !== 'running' && need[b.color]);
   const [ev, evColor] = (s.event || '').split(':');
-  const press = s.capacity_pct > 50 ? 1.5 : 1;
   const actions: Act[] = [];
 
   for (const b of s.belts) {
     if (b.status !== 'running') continue;
-    let want: number;
-    let reason: string;
 
-    if (blocked) {
-      want = 0.25;
-      reason = `${blocked.color} belt is under repair, so ${b.color} slows to avoid surplus.`;
-    } else if (need[b.color]) {
-      want = need[b.color] * 0.3 * press;
-      reason = ev === 'repair_finished'
-        ? `${evColor} belt is back; restoring ${b.color} to ${need[b.color]} per set.`
-        : `Pattern needs ${need[b.color]} ${b.color} per set.`;
+    if (!need[b.color] || blocked) {
+      // Color NOT in target pattern (e.g. Red, Blue, Green when target is 4 Yellow) -> reduce to minimum!
+      if (b.interval_s < 4) {
+        actions.push({
+          belt: b.color,
+          action: 'decrease_speed',
+          reason: blocked
+            ? `${blocked.color} belt is under repair; slowing ${b.color} to avoid overflow.`
+            : `${b.color} is not in the target pattern; slowing belt to minimum.`
+        });
+      }
+      if (b.blocks_per_batch > 1) {
+        actions.push({
+          belt: b.color,
+          action: 'remove_block',
+          reason: blocked
+            ? `${blocked.color} belt is under repair; reducing ${b.color} batch to minimum.`
+            : `${b.color} is not in the target pattern; reducing block batch to 1.`
+        });
+      }
     } else {
-      want = 0.25;
-      reason = `${b.color} is not in the pattern, so it stays at minimum.`;
-    }
+      // Color IS in target pattern -> scale up!
+      const count = need[b.color];
+      const wantSpeed = count >= 2 ? 1 : 2; // interval 1s (fastest) if 2+ blocks needed
+      const wantBatch = count; // 1 to 4 blocks
 
-    const thr = b.blocks_per_batch / b.interval_s;
-    if (thr < want * 0.8) {
-      actions.push({ belt: b.color, action: b.interval_s > 1 ? 'increase_speed' : 'add_block', reason });
-    } else if (thr > want * 1.3) {
-      actions.push({ belt: b.color, action: b.interval_s < 4 ? 'decrease_speed' : 'remove_block', reason });
+      if (b.blocks_per_batch < wantBatch) {
+        actions.push({
+          belt: b.color,
+          action: 'add_block',
+          reason: `Target needs ${count} ${b.color}; increasing batch size to ${wantBatch}.`
+        });
+      } else if (b.blocks_per_batch > wantBatch) {
+        actions.push({
+          belt: b.color,
+          action: 'remove_block',
+          reason: `Target needs only ${count} ${b.color}; reducing batch size to match.`
+        });
+      }
+
+      if (b.interval_s > wantSpeed) {
+        actions.push({
+          belt: b.color,
+          action: 'increase_speed',
+          reason: `Target needs ${count} ${b.color}; speeding up belt to ${wantSpeed}s interval.`
+        });
+      } else if (b.interval_s < wantSpeed) {
+        actions.push({
+          belt: b.color,
+          action: 'decrease_speed',
+          reason: `Adjusting speed to match ${count} ${b.color} target ratio.`
+        });
+      }
     }
   }
 
+  const uniqueNeeded = Object.keys(need);
   const summary = blocked
     ? `${blocked.color} is needed but under repair; holding other colors back.`
+    : uniqueNeeded.length === 1
+    ? `Target requires 4 ${uniqueNeeded[0]}; maximizing ${uniqueNeeded[0]} and throttling all other colors to minimum.`
     : ev === 'pattern_changed'
-    ? `New pattern (${s.pattern.join(', ')}); recalibrating belts.`
+    ? `New pattern (${s.pattern.join(', ')}); recalibrating belt throughput.`
     : ev === 'repair_finished'
     ? `${evColor} repaired; restoring normal speeds.`
-    : 'Matching belt throughput to the current pattern.';
+    : 'Matching belt throughput and batch sizes to current target pattern.';
 
   return { summary, actions: actions.slice(0, 6) };
 }
@@ -200,7 +268,17 @@ async function startServer() {
     });
   });
 
- 
+  // Download project ZIP
+  app.get(['/api/download-zip', '/download'], (_req, res) => {
+    const zipPath = path.resolve(__dirname, 'public', 'prm-app.zip');
+    res.download(zipPath, 'prm-app.zip', err => {
+      if (err) {
+        console.error('Failed to send zip:', err);
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to download zip' });
+      }
+    });
+  });
+
   // AI decision control route
   app.post('/api/control', async (req, res) => {
     const s = req.body as Snapshot;

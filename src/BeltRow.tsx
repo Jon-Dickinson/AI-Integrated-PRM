@@ -197,9 +197,9 @@ export default function BeltRow({ index, belt, locked, pressed, count, onAct }: 
       <Info>
         <Head>
           <HeadRate>
-            {belt.blocks} B / {lvl.interval} seconds
+            {belt.blocks} B / {lvl.interval}s ({(belt.blocks / lvl.interval).toFixed(2)}/s)
           </HeadRate>
-          <HeadCount title={`${c.name} blocks in the container`}>{count}</HeadCount>
+          <HeadCount title={`${c.name} blocks in the container`}>{count} in box</HeadCount>
         </Head>
         <Lane>
           {belt.items
