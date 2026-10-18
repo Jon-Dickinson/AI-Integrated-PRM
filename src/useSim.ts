@@ -6,7 +6,7 @@ import {
   snapshot,
   act as engineAct,
   type GameState,
-  type Action
+  type Action,
 } from './engine';
 
 export interface AiState {
@@ -25,33 +25,50 @@ interface QueuedAction {
   reason?: string;
 }
 
+/** Deep-ish snapshot so React always sees new array references for items/fill. */
+function cloneForReact(live: GameState): GameState {
+  return {
+    ...live,
+    fill: [...live.fill],
+    pattern: [...live.pattern],
+    log: live.log.slice(),
+    belts: live.belts.map((belt) => ({
+      ...belt,
+      items: [...belt.items],
+    })),
+  };
+}
+
 export function useSim() {
-  const [state, setState] = useState<GameState>(() => createState());
+  // Live mutable engine state — the animation loop mutates this object only.
+  // React state is a read-only copy used purely for rendering.
+  const stateRef = useRef<GameState>(createState());
+
+  const [state, setState] = useState<GameState>(() =>
+    cloneForReact(stateRef.current),
+  );
   const [mode, setModeState] = useState<'manual' | 'ai'>('ai');
   const [ai, setAi] = useState<AiState>({
     source: '',
-    why: 'Initializing LLM controller...'
+    why: 'Initializing LLM controller...',
   });
   const [press, setPress] = useState<PressInfo | null>(null);
-
-  const stateRef = useRef<GameState>(state);
-  stateRef.current = state;
 
   const modeRef = useRef<'manual' | 'ai'>(mode);
   modeRef.current = mode;
 
-  const isCallingRef = useRef(false);
+  const isCallingAiRef = useRef(false);
   const lastAiCallTimeRef = useRef(0);
   const actionQueueRef = useRef<QueuedAction[]>([]);
   const isExecutingQueueRef = useRef(false);
   const queueTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Helper to trigger a React re-render of current state
+  // Push a fresh copy of the live engine state into React
   const forceRender = useCallback(() => {
-    setState({ ...stateRef.current });
+    setState(cloneForReact(stateRef.current));
   }, []);
 
-  // Process queued actions sequentially with animated button presses
+  // Process queued AI actions one-by-one with press animation
   const runQueue = useCallback(async () => {
     if (isExecutingQueueRef.current) return;
     isExecutingQueueRef.current = true;
@@ -63,88 +80,92 @@ export function useSim() {
         break;
       }
 
-      const item = actionQueueRef.current.shift()!;
-      const beltIndex = colors.findIndex(c => c.key === item.belt);
+      const queued = actionQueueRef.current.shift()!;
+      const beltIndex = colors.findIndex((color) => color.key === queued.belt);
       if (beltIndex === -1) continue;
 
       const belt = stateRef.current.belts[beltIndex];
-      if (belt.down > 0) continue; // Skip if belt is under repair
+      if (belt.down > 0) continue;
 
-      // 1. Press down the button
-      setPress({ belt: beltIndex, action: item.action });
+      setPress({ belt: beltIndex, action: queued.action });
 
-      await new Promise(r => {
-        queueTimeoutRef.current = setTimeout(r, sim.aiPressMs);
+      await new Promise((resolve) => {
+        queueTimeoutRef.current = setTimeout(resolve, sim.aiPressMs);
       });
 
-      // 2. Execute the action in the engine
-      engineAct(stateRef.current, beltIndex, item.action, 'AI', item.reason);
+      engineAct(
+        stateRef.current,
+        beltIndex,
+        queued.action,
+        'AI',
+        queued.reason,
+      );
       forceRender();
 
-      // 3. Release button
       setPress(null);
 
-      // 4. Gap between actions
-      await new Promise(r => {
-        queueTimeoutRef.current = setTimeout(r, sim.aiGapMs);
+      await new Promise((resolve) => {
+        queueTimeoutRef.current = setTimeout(resolve, sim.aiGapMs);
       });
     }
 
     isExecutingQueueRef.current = false;
   }, [forceRender]);
 
-  // Request AI instructions from the server
   const callAi = useCallback(
     async (event: string) => {
       if (modeRef.current !== 'ai' || stateRef.current.failed) return;
-      if (isCallingRef.current) return;
+      if (isCallingAiRef.current) return;
 
-      isCallingRef.current = true;
+      isCallingAiRef.current = true;
       lastAiCallTimeRef.current = stateRef.current.t;
 
       try {
         const snap = snapshot(stateRef.current, event);
-        const res = await fetch('/api/control', {
+        const response = await fetch('/api/control', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(snap)
+          body: JSON.stringify(snap),
         });
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
 
-        const src = (data.source === 'gemini' || data.source === 'LLM' || data.source === 'llm')
-          ? 'LLM'
-          : 'Rules';
+        const source =
+          data.source === 'gemini' ||
+          data.source === 'LLM' ||
+          data.source === 'llm'
+            ? 'LLM'
+            : 'Rules';
 
         setAi({
-          source: src,
-          why: data.summary || 'Balancing conveyor throughput.'
+          source,
+          why: data.summary || 'Balancing conveyor throughput.',
         });
 
         if (Array.isArray(data.actions) && data.actions.length > 0) {
           actionQueueRef.current.push(...data.actions);
           runQueue();
         }
-      } catch (err) {
-        console.error('AI call failed:', err);
-        setAi(prev => ({
-          ...prev,
-          source: prev.source || 'Rules',
-          why: 'Controller communication retrying...'
+      } catch (error) {
+        console.error('AI call failed:', error);
+        setAi((previous) => ({
+          ...previous,
+          source: previous.source || 'Rules',
+          why: 'Controller communication retrying...',
         }));
       } finally {
-        isCallingRef.current = false;
+        isCallingAiRef.current = false;
       }
     },
-    [runQueue]
+    [runQueue],
   );
 
-  // Set mode handler
   const setMode = useCallback(
     (newMode: 'manual' | 'ai') => {
       setModeState(newMode);
       modeRef.current = newMode;
+
       if (newMode === 'manual') {
         actionQueueRef.current = [];
         setPress(null);
@@ -152,85 +173,93 @@ export function useSim() {
         callAi('ai_enabled');
       }
     },
-    [callAi]
+    [callAi],
   );
 
-  // Manual action handler
   const act = useCallback(
     (beltIndex: number, action: Action) => {
       if (modeRef.current === 'ai') return;
       engineAct(stateRef.current, beltIndex, action, 'You');
       forceRender();
     },
-    [forceRender]
+    [forceRender],
   );
 
-  // Reset simulation
   const reset = useCallback(() => {
     if (queueTimeoutRef.current) clearTimeout(queueTimeoutRef.current);
+
     actionQueueRef.current = [];
     isExecutingQueueRef.current = false;
-    isCallingRef.current = false;
+    isCallingAiRef.current = false;
     setPress(null);
 
-    const fresh = createState();
-    stateRef.current = fresh;
-    setState(fresh);
+    const freshState = createState();
+    stateRef.current = freshState;
+    setState(cloneForReact(freshState));
 
     if (modeRef.current === 'ai') {
       callAi('ai_enabled');
     }
   }, [callAi]);
 
-  // Main simulation tick loop
+  // Main simulation + AI tick loop
   useEffect(() => {
-    let animId: number;
-    let lastTime = performance.now();
-    let prevPattern = [...stateRef.current.pattern];
-    const prevDowns = stateRef.current.belts.map(b => b.down > 0);
+    let animationFrameId: number;
+    let lastFrameTime = performance.now();
+
+    let previousPattern = [...stateRef.current.pattern];
+    const previousRepairStates = stateRef.current.belts.map(
+      (belt) => belt.down > 0,
+    );
 
     const loop = (now: number) => {
-      const dt = Math.min((now - lastTime) / 1000, 0.1);
-      lastTime = now;
+      const deltaTime = Math.min((now - lastFrameTime) / 1000, 0.1);
+      lastFrameTime = now;
 
-      const s = stateRef.current;
-      if (!s.failed) {
-        step(s, dt);
+      const currentState = stateRef.current;
 
-        // Check if pattern changed
-        const currentPattern = s.pattern;
+      if (!currentState.failed) {
+        step(currentState, deltaTime);
+
+        // Detect pattern change
+        const currentPattern = currentState.pattern;
         const patternChanged =
-          currentPattern.length !== prevPattern.length ||
-          currentPattern.some((c, idx) => c !== prevPattern[idx]);
+          currentPattern.length !== previousPattern.length ||
+          currentPattern.some(
+            (colorIndex, index) => colorIndex !== previousPattern[index],
+          );
 
         if (patternChanged) {
-          prevPattern = [...currentPattern];
+          previousPattern = [...currentPattern];
           if (modeRef.current === 'ai') {
             callAi('pattern_changed');
           }
         }
 
-        // Check repair state changes
-        s.belts.forEach((b, i) => {
-          const isDown = b.down > 0;
-          if (isDown && !prevDowns[i]) {
-            prevDowns[i] = true;
+        // Detect repair start / finish on each belt
+        currentState.belts.forEach((belt, beltIndex) => {
+          const isUnderRepair = belt.down > 0;
+
+          if (isUnderRepair && !previousRepairStates[beltIndex]) {
+            previousRepairStates[beltIndex] = true;
             if (modeRef.current === 'ai') {
-              callAi(`repair_started:${colors[i].key}`);
+              callAi(`repair_started:${colors[beltIndex].key}`);
             }
-          } else if (!isDown && prevDowns[i]) {
-            prevDowns[i] = false;
+          } else if (!isUnderRepair && previousRepairStates[beltIndex]) {
+            previousRepairStates[beltIndex] = false;
             if (modeRef.current === 'ai') {
-              callAi(`repair_finished:${colors[i].key}`);
+              callAi(`repair_finished:${colors[beltIndex].key}`);
             }
           }
         });
 
-        // Periodic AI check
+        // Periodic AI poll
+        const timeSinceLastAiCall =
+          currentState.t - lastAiCallTimeRef.current;
         if (
           modeRef.current === 'ai' &&
-          s.t - lastAiCallTimeRef.current >= sim.aiEverySeconds &&
-          !isCallingRef.current &&
+          timeSinceLastAiCall >= sim.aiEverySeconds &&
+          !isCallingAiRef.current &&
           actionQueueRef.current.length === 0
         ) {
           callAi('periodic');
@@ -239,18 +268,17 @@ export function useSim() {
         forceRender();
       }
 
-      animId = requestAnimationFrame(loop);
+      animationFrameId = requestAnimationFrame(loop);
     };
 
-    animId = requestAnimationFrame(loop);
+    animationFrameId = requestAnimationFrame(loop);
 
-    // Initial AI kickoff
     if (modeRef.current === 'ai') {
       callAi('ai_enabled');
     }
 
     return () => {
-      cancelAnimationFrame(animId);
+      cancelAnimationFrame(animationFrameId);
       if (queueTimeoutRef.current) clearTimeout(queueTimeoutRef.current);
     };
   }, [callAi, forceRender]);
@@ -262,6 +290,6 @@ export function useSim() {
     press,
     setMode,
     act,
-    reset
+    reset,
   };
 }

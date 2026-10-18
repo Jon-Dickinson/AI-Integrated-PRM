@@ -15,9 +15,12 @@ const slide = keyframes`
   }
 `;
 
-export const fmt = (s: number) => {
-  s = Math.max(0, s);
-  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}:${String(Math.floor((s % 1) * 100)).padStart(2, '0')}`;
+export const fmt = (seconds: number) => {
+  const clamped = Math.max(0, seconds);
+  const mins = Math.floor(clamped / 60);
+  const secs = Math.floor(clamped % 60);
+  const centis = Math.floor((clamped % 1) * 100);
+  return `${mins}:${String(secs).padStart(2, '0')}:${String(centis).padStart(2, '0')}`;
 };
 
 const Row = styled.div`
@@ -28,18 +31,18 @@ const Row = styled.div`
 `;
 
 const Panel = styled('div', {
-  shouldForwardProp: prop => !['a', 'b', 'locked'].includes(prop)
-})<{ a: string; b: string; locked: boolean }>`
-  width: ${p => p.theme.belt.panel}px;
-  height: ${p => p.theme.belt.panel}px;
+  shouldForwardProp: (prop) => !['lightColor', 'darkColor', 'locked'].includes(prop),
+})<{ lightColor: string; darkColor: string; locked: boolean }>`
+  width: ${(p) => p.theme.belt.panel}px;
+  height: ${(p) => p.theme.belt.panel}px;
   border-radius: 8px;
   padding: 8px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  background: linear-gradient(${p => p.a}, ${p => p.b});
+  background: linear-gradient(${(p) => p.lightColor}, ${(p) => p.darkColor});
   border: 2px solid rgba(255, 255, 255, 0.55);
-  pointer-events: ${p => (p.locked ? 'none' : 'auto')};
+  pointer-events: ${(p) => (p.locked ? 'none' : 'auto')};
 `;
 
 const PanelButton = styled.button`
@@ -64,7 +67,7 @@ const PanelButton = styled.button`
 `;
 
 const Info = styled.div`
-  width: ${p => p.theme.belt.length}px;
+  width: ${(p) => p.theme.belt.length}px;
 `;
 
 const Head = styled.div`
@@ -76,11 +79,11 @@ const Head = styled.div`
 `;
 
 const HeadRate = styled.span`
-  color: ${p => p.theme.text};
+  color: ${(p) => p.theme.text};
 `;
 
 const HeadCount = styled.span`
-  color: ${p => p.theme.text};
+  color: ${(p) => p.theme.text};
 `;
 
 const Lane = styled.div`
@@ -89,18 +92,22 @@ const Lane = styled.div`
 `;
 
 const Track = styled('div', {
-  shouldForwardProp: prop => !['period', 'paused'].includes(prop)
+  shouldForwardProp: (prop) => !['period', 'paused'].includes(prop),
 })<{ period: number; paused: boolean }>`
   position: absolute;
   left: 0;
   right: 0;
   bottom: 3px;
-  height: ${p => p.theme.belt.trackHeight}px;
-  border: 2px solid ${p => p.theme.line};
+  height: ${(p) => p.theme.belt.trackHeight}px;
+  border: 2px solid ${(p) => p.theme.line};
   border-radius: 10px;
-  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.28) 0 6px, transparent 6px 20px);
-  animation: ${slide} ${p => p.period}s linear infinite;
-  animation-play-state: ${p => (p.paused ? 'paused' : 'running')};
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.28) 0 6px,
+    transparent 6px 20px
+  );
+  animation: ${slide} ${(p) => p.period}s linear infinite;
+  animation-play-state: ${(p) => (p.paused ? 'paused' : 'running')};
 `;
 
 const Wheels = styled.div`
@@ -114,20 +121,20 @@ const Wheels = styled.div`
 `;
 
 const Wheel = styled('span', {
-  shouldForwardProp: prop => !['revSec', 'paused'].includes(prop)
+  shouldForwardProp: (prop) => !['revSec', 'paused'].includes(prop),
 })<{ revSec: number; paused: boolean }>`
   position: relative;
-  width: ${p => p.theme.wheel.size}px;
-  height: ${p => p.theme.wheel.size}px;
+  width: ${(p) => p.theme.wheel.size}px;
+  height: ${(p) => p.theme.wheel.size}px;
   border-radius: 50%;
-  background: ${p => p.theme.panelBg};
-  border: ${p => p.theme.wheel.border}px solid ${p => p.theme.line};
-  animation: ${spin} ${p => p.revSec}s linear infinite;
-  animation-play-state: ${p => (p.paused ? 'paused' : 'running')};
+  background: ${(p) => p.theme.panelBg};
+  border: ${(p) => p.theme.wheel.border}px solid ${(p) => p.theme.line};
+  animation: ${spin} ${(p) => p.revSec}s linear infinite;
+  animation-play-state: ${(p) => (p.paused ? 'paused' : 'running')};
 `;
 
 const Spoke = styled('i', {
-  shouldForwardProp: prop => prop !== 'rotation'
+  shouldForwardProp: (prop) => prop !== 'rotation',
 })<{ rotation: number }>`
   position: absolute;
   left: 50%;
@@ -135,20 +142,23 @@ const Spoke = styled('i', {
   width: 2px;
   height: 100%;
   margin-left: -1px;
-  background: ${p => p.theme.line};
-  transform: rotate(${p => p.rotation}deg);
+  background: ${(p) => p.theme.line};
+  transform: rotate(${(p) => p.rotation}deg);
 `;
 
 const Block = styled('div', {
-  shouldForwardProp: prop => !['progress', 'blockColor', 'blockWidth'].includes(prop)
+  shouldForwardProp: (prop) =>
+    !['progress', 'blockColor', 'blockWidth'].includes(prop),
 })<{ progress: number; blockColor: string; blockWidth: number }>`
   position: absolute;
-  bottom: ${p => p.theme.belt.trackHeight + 8}px;
-  left: calc(${p => p.progress * 100}% - ${p => p.progress * p.blockWidth}px);
-  width: ${p => p.blockWidth}px;
-  height: ${p => p.theme.belt.block}px;
+  bottom: ${(p) => p.theme.belt.trackHeight + 8}px;
+  left: calc(
+    ${(p) => p.progress * 100}% - ${(p) => p.progress * p.blockWidth}px
+  );
+  width: ${(p) => p.blockWidth}px;
+  height: ${(p) => p.theme.belt.block}px;
   border-radius: 3px;
-  background: ${p => p.blockColor};
+  background: ${(p) => p.blockColor};
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 `;
 
@@ -166,21 +176,28 @@ interface Props {
   locked: boolean;
   pressed: Action | null;
   count: number;
-  onAct: (i: number, a: Action) => void;
+  onAct: (beltIndex: number, action: Action) => void;
 }
 
-export default function BeltRow({ index, belt, locked, pressed, count, onAct }: Props) {
-  const { belt: bt, wheel } = useTheme();
-  const c = colors[index];
-  const lvl = sim.speedLevels[belt.level];
+export default function BeltRow({
+  index,
+  belt,
+  locked,
+  pressed,
+  count,
+  onAct,
+}: Props) {
+  const { belt: beltTheme, wheel } = useTheme();
+  const color = colors[index];
+  const speedLevel = sim.speedLevels[belt.level];
   const paused = belt.down > 0;
 
-  const btn = (a: Action, label: string, text: string) => (
+  const renderButton = (action: Action, label: string, text: string) => (
     <PanelButton
       type="button"
-      aria-label={`${c.name} ${label}`}
-      data-active={pressed === a}
-      onClick={() => onAct(index, a)}
+      aria-label={`${color.name} ${label}`}
+      data-active={pressed === action}
+      onClick={() => onAct(index, action)}
     >
       {text}
     </PanelButton>
@@ -188,42 +205,57 @@ export default function BeltRow({ index, belt, locked, pressed, count, onAct }: 
 
   return (
     <Row>
-      <Panel a={c.light} b={c.dark} locked={locked}>
-        {btn('increase_speed', 'increase speed', '↑')}
-        {btn('add_block', 'add block', '+')}
-        {btn('decrease_speed', 'decrease speed', '↓')}
-        {btn('remove_block', 'remove block', '−')}
+      <Panel lightColor={color.light} darkColor={color.dark} locked={locked}>
+        {renderButton('increase_speed', 'increase speed', '↑')}
+        {renderButton('add_block', 'add block', '+')}
+        {renderButton('decrease_speed', 'decrease speed', '↓')}
+        {renderButton('remove_block', 'remove block', '−')}
       </Panel>
       <Info>
         <Head>
           <HeadRate>
-            {belt.blocks} B / {lvl.interval}s ({(belt.blocks / lvl.interval).toFixed(2)}/s)
+            {belt.blocks} B / {speedLevel.interval}s (
+            {(belt.blocks / speedLevel.interval).toFixed(2)}/s)
           </HeadRate>
-          <HeadCount title={`${c.name} blocks in the container`}>{count} in box</HeadCount>
+          <HeadCount title={`${color.name} blocks in the container`}>
+            {count} in box
+          </HeadCount>
         </Head>
         <Lane>
           {belt.items
-            .filter(x => x >= 0)
-            .map((x, k) => (
+            .filter((position) => position >= 0)
+            .map((position, itemIndex) => (
               <Block
-                key={k}
-                blockColor={c.light}
-                progress={x}
-                blockWidth={bt.block}
+                key={itemIndex}
+                blockColor={color.light}
+                progress={position}
+                blockWidth={beltTheme.block}
               />
             ))}
-          <Track period={(20 * lvl.travel) / bt.length} paused={paused} />
+          <Track
+            period={(20 * speedLevel.travel) / beltTheme.length}
+            paused={paused}
+          />
           <Wheels>
-            {Array.from({ length: wheel.count }, (_, w) => (
-              <Wheel key={w} revSec={lvl.wheelRev} paused={paused}>
-                {Array.from({ length: wheel.spokes }, (_, s) => (
-                  <Spoke key={s} rotation={(s * 180) / wheel.spokes} />
+            {Array.from({ length: wheel.count }, (_, wheelIndex) => (
+              <Wheel
+                key={wheelIndex}
+                revSec={speedLevel.wheelRev}
+                paused={paused}
+              >
+                {Array.from({ length: wheel.spokes }, (_, spokeIndex) => (
+                  <Spoke
+                    key={spokeIndex}
+                    rotation={(spokeIndex * 180) / wheel.spokes}
+                  />
                 ))}
               </Wheel>
             ))}
           </Wheels>
         </Lane>
-        <Repair>{paused ? `🔧 Under Repair (${fmt(belt.down)})` : ''}</Repair>
+        <Repair>
+          {paused ? `🔧 Under Repair (${fmt(belt.down)})` : ''}
+        </Repair>
       </Info>
     </Row>
   );

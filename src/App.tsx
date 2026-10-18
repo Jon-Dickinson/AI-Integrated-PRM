@@ -7,14 +7,15 @@ import { capacity } from './engine';
 import { useSim } from './useSim';
 
 const Shell = styled('div', {
-  shouldForwardProp: prop => prop !== 'open'
+  shouldForwardProp: (prop) => prop !== 'open',
 })<{ open: boolean }>`
   position: relative;
   height: 100vh;
   overflow-x: hidden;
   overflow-y: auto;
-  transition: width ${p => p.theme.log.slideMs}ms ease;
-  width: ${p => (p.open ? `calc(100% - ${p.theme.log.width}px)` : '100%')};
+  transition: width ${(p) => p.theme.log.slideMs}ms ease;
+  width: ${(p) =>
+    p.open ? `calc(100% - ${p.theme.log.width}px)` : '100%'};
 `;
 
 const Top = styled.div`
@@ -110,14 +111,14 @@ const Pills = styled.div`
 `;
 
 const Pill = styled('span', {
-  shouldForwardProp: prop => prop !== 'bg'
+  shouldForwardProp: (prop) => prop !== 'bg',
 })<{ bg: string }>`
   padding: 6px 16px;
   border-radius: 20px;
   font-size: 14px;
   font-weight: 600;
   color: #1a1a1a;
-  background: ${p => p.bg};
+  background: ${(p) => p.bg};
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
   display: inline-block;
   white-space: nowrap;
@@ -126,7 +127,7 @@ const Pill = styled('span', {
 const Why = styled.div`
   font-size: 12px;
   line-height: 1.45;
-  color: ${p => p.theme.muted};
+  color: ${(p) => p.theme.muted};
   background: rgba(2, 10, 38, 0.45);
   padding: 8px 12px;
   border-radius: 6px;
@@ -175,18 +176,18 @@ const Pattern = styled.div`
 `;
 
 const PatternDot = styled('i', {
-  shouldForwardProp: prop => prop !== 'dotColor'
+  shouldForwardProp: (prop) => prop !== 'dotColor',
 })<{ dotColor: string }>`
   width: 22px;
   height: 22px;
   border-radius: 3px;
   display: block;
-  background: ${p => p.dotColor};
+  background: ${(p) => p.dotColor};
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 `;
 
 const Mode = styled('button', {
-  shouldForwardProp: prop => prop !== 'active'
+  shouldForwardProp: (prop) => prop !== 'active',
 })<{ active: boolean }>`
   width: 42px;
   height: 42px;
@@ -199,8 +200,8 @@ const Mode = styled('button', {
   align-items: center;
   justify-content: center;
   transition: all 0.15s;
-  background: ${p => (p.active ? '#fff' : 'transparent')};
-  color: ${p => (p.active ? '#031033' : '#fff')};
+  background: ${(p) => (p.active ? '#fff' : 'transparent')};
+  color: ${(p) => (p.active ? '#031033' : '#fff')};
   &:hover {
     box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
   }
@@ -210,12 +211,12 @@ const Log = styled.aside<{ open: boolean }>`
   position: fixed;
   top: 0;
   right: 0;
-  width: ${p => p.theme.log.width}px;
+  width: ${(p) => p.theme.log.width}px;
   height: 100vh;
   border-left: 2px solid #fff;
-  background: ${p => p.theme.panelBg};
-  transform: translateX(${p => (p.open ? 0 : 100)}%);
-  transition: transform ${p => p.theme.log.slideMs}ms ease;
+  background: ${(p) => p.theme.panelBg};
+  transform: translateX(${(p) => (p.open ? 0 : 100)}%);
+  transition: transform ${(p) => p.theme.log.slideMs}ms ease;
   overflow: auto;
   padding: 20px 22px;
   font-size: 14px;
@@ -233,7 +234,7 @@ const LogHeading = styled.h3`
 `;
 
 const EmptyLogNotice = styled.div`
-  color: ${p => p.theme.muted};
+  color: ${(p) => p.theme.muted};
   font-style: italic;
 `;
 
@@ -252,23 +253,33 @@ const EntryTitle = styled.b`
 
 const EntryMeta = styled.small`
   display: block;
-  color: ${p => p.theme.muted};
+  color: ${(p) => p.theme.muted};
   font-size: 12px;
   margin-top: 3px;
 `;
 
 export default function App() {
-  const { state: s, mode, ai, press, setMode, act, reset } = useSim();
-  const [open, setOpen] = useState(false);
+  const { state, mode, ai, press, setMode, act, reset } = useSim();
+  const [logOpen, setLogOpen] = useState(false);
 
-  const pct = Math.round((s.fill.length / capacity) * 100);
-  const repairing = s.belts.findIndex(b => b.down > 0);
-  const counts = colors.map(() => 0);
-  s.fill.forEach(c => counts[c]++);
+  const capacityPercent = Math.round((state.fill.length / capacity) * 100);
+  const repairingBeltIndex = state.belts.findIndex((belt) => belt.down > 0);
+
+  const containerCounts = colors.map(() => 0);
+  state.fill.forEach((colorIndex) => {
+    containerCounts[colorIndex]++;
+  });
+
+  const capacityPillColor =
+    capacityPercent > 75
+      ? '#ff9b9b'
+      : capacityPercent > 50
+        ? '#ffd27a'
+        : '#9be39b';
 
   return (
     <>
-      <Shell open={open}>
+      <Shell open={logOpen}>
         <Top>
           <TopBrand>⚙ PRM</TopBrand>
           <TopActions>
@@ -276,7 +287,7 @@ export default function App() {
               type="button"
               aria-label="Action log"
               title="Toggle Action Log"
-              onClick={() => setOpen(o => !o)}
+              onClick={() => setLogOpen((prev) => !prev)}
             >
               ☰
             </LogToggleButton>
@@ -299,12 +310,10 @@ export default function App() {
               ? `AI Management Active${ai.source ? ` · ${ai.source}` : ''}`
               : 'Manual Control'}
           </Pill>
-          <Pill bg={pct > 75 ? '#ff9b9b' : pct > 50 ? '#ffd27a' : '#9be39b'}>
-            {pct}% Capacity
-          </Pill>
-          {repairing >= 0 && (
+          <Pill bg={capacityPillColor}>{capacityPercent}% Capacity</Pill>
+          {repairingBeltIndex >= 0 && (
             <Pill bg="#ffd0d0">
-              {colors[repairing].name} Belt Active Repairs
+              {colors[repairingBeltIndex].name} Belt Active Repairs
             </Pill>
           )}
           {mode === 'ai' && ai.why && <Why>{ai.why}</Why>}
@@ -312,24 +321,29 @@ export default function App() {
 
         <Stage>
           <BeltColumn>
-            {s.belts.map((b, i) => (
+            {state.belts.map((belt, beltIndex) => (
               <BeltRow
-                key={i}
-                index={i}
-                belt={b}
+                key={beltIndex}
+                index={beltIndex}
+                belt={belt}
                 locked={mode === 'ai'}
-                pressed={press && press.belt === i ? press.action : null}
-                count={counts[i]}
+                pressed={
+                  press && press.belt === beltIndex ? press.action : null
+                }
+                count={containerCounts[beltIndex]}
                 onAct={act}
               />
             ))}
           </BeltColumn>
           <RightColumn>
             <Bar>
-              <PatternTimer>{fmt(s.patternLeft)}</PatternTimer>
+              <PatternTimer>{fmt(state.patternLeft)}</PatternTimer>
               <Pattern>
-                {s.pattern.map((c, k) => (
-                  <PatternDot key={k} dotColor={colors[c].light} />
+                {state.pattern.map((colorIndex, patternIndex) => (
+                  <PatternDot
+                    key={patternIndex}
+                    dotColor={colors[colorIndex].light}
+                  />
                 ))}
               </Pattern>
               <Mode
@@ -350,24 +364,27 @@ export default function App() {
               </Mode>
             </Bar>
             <ContainerView
-              s={s}
+              state={state}
               onReset={reset}
-              label={mode === 'ai' ? 'Mode: AI control' : 'Mode: manual control'}
+              label={
+                mode === 'ai' ? 'Mode: AI control' : 'Mode: manual control'
+              }
             />
           </RightColumn>
         </Stage>
       </Shell>
 
-      <Log open={open}>
+      <Log open={logOpen}>
         <LogHeading>Action Log</LogHeading>
-        {s.log.length === 0 ? (
+        {state.log.length === 0 ? (
           <EmptyLogNotice>No actions recorded yet.</EmptyLogNotice>
         ) : (
-          s.log.map((l, i) => (
-            <Entry key={s.log.length - i}>
-              <EntryTitle>{l.text}</EntryTitle>
+          state.log.map((entry, entryIndex) => (
+            <Entry key={state.log.length - entryIndex}>
+              <EntryTitle>{entry.text}</EntryTitle>
               <EntryMeta>
-                {l.who} · {Math.floor(l.t)}s{l.why ? ` · ${l.why}` : ''}
+                {entry.who} · {Math.floor(entry.t)}s
+                {entry.why ? ` · ${entry.why}` : ''}
               </EntryMeta>
             </Entry>
           ))

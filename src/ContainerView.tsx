@@ -6,8 +6,8 @@ import { capacity, type GameState } from './engine';
 
 const Box = styled.div`
   position: relative;
-  width: ${p => p.theme.container.cell * sim.cols + 4}px;
-  border: 2px solid ${p => p.theme.container.border};
+  width: ${(p) => p.theme.container.cell * sim.cols + 4}px;
+  border: 2px solid ${(p) => p.theme.container.border};
   background: rgba(2, 8, 25, 0.6);
   border-radius: 4px;
   overflow: visible;
@@ -17,36 +17,38 @@ const ContainerCanvas = styled.canvas`
   display: block;
 `;
 
-// Ruler: 0% at the bottom of the container, 100% at the top. Ticks every 5%, longer every 10%.
+// Ruler: 0% at the bottom of the container, 100% at the top.
+// Ticks every 5%, longer marks every 10%.
 const Ruler = styled('div', {
-  shouldForwardProp: prop => prop !== 'h'
-})<{ h: number }>`
+  shouldForwardProp: (prop) => prop !== 'heightPx',
+})<{ heightPx: number }>`
   position: absolute;
   top: 0;
   left: 100%;
   margin-left: 4px;
   width: 70px;
-  height: ${p => p.h}px;
-  border-left: 1px solid ${p => p.theme.line};
+  height: ${(p) => p.heightPx}px;
+  border-left: 1px solid ${(p) => p.theme.line};
 `;
 
 const Tick = styled('span', {
-  shouldForwardProp: prop => !['major', 'bottomPct'].includes(prop)
+  shouldForwardProp: (prop) => !['major', 'bottomPct'].includes(prop),
 })<{ major: boolean; bottomPct: number }>`
   position: absolute;
   left: 0;
-  bottom: ${p => p.bottomPct}%;
-  width: ${p => (p.major ? 14 : 8)}px;
-  border-top: 1px solid ${p => p.theme.line};
+  bottom: ${(p) => p.bottomPct}%;
+  width: ${(p) => (p.major ? 14 : 8)}px;
+  border-top: 1px solid ${(p) => p.theme.line};
 `;
 
-// Gauge sits on the top edge of the highest row of blocks and shows the nearest whole percentage.
+// Gauge sits on the top edge of the highest row of blocks
+// and shows the nearest whole percentage.
 const Gauge = styled('div', {
-  shouldForwardProp: prop => prop !== 'bottomPx'
+  shouldForwardProp: (prop) => prop !== 'bottomPx',
 })<{ bottomPx: number }>`
   position: absolute;
   left: 0;
-  bottom: ${p => p.bottomPx}px;
+  bottom: ${(p) => p.bottomPx}px;
   width: 22px;
   border-top: 2px solid #fff;
   transition: bottom 0.15s linear;
@@ -104,54 +106,69 @@ const FailButton = styled.button`
   }
 `;
 
-export default function ContainerView({
-  s,
-  onReset,
-  label
-}: {
-  s: GameState;
+interface Props {
+  state: GameState;
   onReset: () => void;
   label: string;
-}) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const { container: { cell, dot } } = useTheme();
-  const h = cell * sim.rows;
+}
+
+export default function ContainerView({ state, onReset, label }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const {
+    container: { cell, dot },
+  } = useTheme();
+  const canvasHeight = cell * sim.rows;
 
   useEffect(() => {
-    if (!ref.current) return;
-    const cx = ref.current.getContext('2d');
-    if (!cx) return;
-    cx.clearRect(0, 0, cell * sim.cols, h);
-    s.fill.forEach((c, k) => {
-      cx.fillStyle = colors[c].light;
-      cx.fillRect(
-        (k % sim.cols) * cell + (cell - dot) / 2,
-        h - (Math.floor(k / sim.cols) + 1) * cell + (cell - dot) / 2,
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    context.clearRect(0, 0, cell * sim.cols, canvasHeight);
+
+    state.fill.forEach((colorIndex, itemIndex) => {
+      const column = itemIndex % sim.cols;
+      const row = Math.floor(itemIndex / sim.cols);
+
+      context.fillStyle = colors[colorIndex].light;
+      context.fillRect(
+        column * cell + (cell - dot) / 2,
+        canvasHeight - (row + 1) * cell + (cell - dot) / 2,
         dot,
-        dot
+        dot,
       );
     });
   });
 
-  const pct = Math.round((s.fill.length / capacity) * 100);
-  const topRow = Math.ceil(s.fill.length / sim.cols);
+  const fillPercent = Math.round((state.fill.length / capacity) * 100);
+  const occupiedRows = Math.ceil(state.fill.length / sim.cols);
 
   return (
     <Box>
-      <ContainerCanvas ref={ref} width={cell * sim.cols} height={h} />
-      <Ruler h={h}>
-        {Array.from({ length: 21 }, (_, i) => (
-          <Tick key={i} major={i % 2 === 0} bottomPct={i * 5} />
+      <ContainerCanvas
+        ref={canvasRef}
+        width={cell * sim.cols}
+        height={canvasHeight}
+      />
+      <Ruler heightPx={canvasHeight}>
+        {Array.from({ length: 21 }, (_, tickIndex) => (
+          <Tick
+            key={tickIndex}
+            major={tickIndex % 2 === 0}
+            bottomPct={tickIndex * 5}
+          />
         ))}
-        <Gauge bottomPx={Math.max(0, topRow * cell - 1)}>
-          <GaugeLabel>{pct}%</GaugeLabel>
+        <Gauge bottomPx={Math.max(0, occupiedRows * cell - 1)}>
+          <GaugeLabel>{fillPercent}%</GaugeLabel>
         </Gauge>
       </Ruler>
-      {s.failed && (
+      {state.failed && (
         <Fail>
           <FailTitle>Container Full!</FailTitle>
           <FailText>
-            The simulation overflowed after {Math.floor(s.t)} seconds.
+            The simulation overflowed after {Math.floor(state.t)} seconds.
             <br />
             {label}
           </FailText>
