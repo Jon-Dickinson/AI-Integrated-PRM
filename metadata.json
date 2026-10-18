@@ -1,0 +1,6 @@
+{
+  "name": "PRM - Production & Resource Management",
+  "description": "Production and Resource-Management simulation featuring automated conveyor belts and real-time Gemini LLM optimization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
