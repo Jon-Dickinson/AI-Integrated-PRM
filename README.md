@@ -21,7 +21,7 @@ Conveyor belt simulation with real-time AI optimization powered by Google Gemini
 2. Configure your Gemini API key in `.env`:
    ```env
    GEMINI_API_KEY=your_gemini_api_key_here
-   GEMINI_MODEL=gemini-3.8-flash
+   GEMINI_MODEL=gemini-3.1-flash-lite
    ```
 
 3. Run the development server:
